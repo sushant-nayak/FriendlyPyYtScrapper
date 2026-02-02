@@ -48,6 +48,20 @@ web_modules/
 *.tsbuildinfo
 
 # Optional npm cache directory
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Downloads
+downloads/
+*.mp4
+*.webm
+*.mkv
+*.mp3
+*.m4a
 .npm
 
 # Optional eslint cache
