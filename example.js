@@ -8,13 +8,14 @@ async function demo() {
     
     try {
         // Get video info
-        console.log('=== Getting Video Info ===');
-        const info = await scrapper.getInfo(testUrl);
-        console.log('Title:', info.title);
-        console.log('Author:', info.author);
-        console.log('Duration:', info.duration, 'seconds');
-        console.log('Formats available:', info.formats.length);
-        
+        // console.log('=== Getting Video Info ===');
+        // const info = await scrapper.getInfo(testUrl);
+        // console.log('Title:', info.title);
+        // console.log('Author:', info.author);
+        // console.log('Duration:', info.duration, 'seconds');
+        // console.log('Formats available:', info.formats.length);
+        // console.log('Formats available:', nfo.formats.map(f => "Quality: " + f.quality + " mimeType: " + f.mimeType + " hasAudio: " + f.hasAudio + " hasVideo: " + f.hasVideo).join(', '));
+
         // Uncomment to download
         // console.log('\n=== Downloading Video ===');
         // const result = await scrapper.download(testUrl);
@@ -31,4 +32,4 @@ async function demo() {
 }
 
 // Uncomment to run demo
-// demo();
+ demo();

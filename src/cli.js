@@ -52,13 +52,19 @@ program
     .argument('<url>', 'YouTube video URL')
     .option('-o, --output <path>', 'Output directory', join(__dirname, '../downloads'))
     .option('-a, --audio-only', 'Download audio only', false)
+    .option('-q, --quality <resolution>', 'Video quality/resolution (e.g., 720p, 1080p, 480p, 360p, best, worst)', 'best')
     .action(async (url, options) => {
         try {
             console.log('Starting download...\n');
             
+            const downloadOptions = {
+                audioOnly: options.audioOnly,
+                quality: options.quality
+            };
+            
             const result = options.audioOnly 
                 ? await scrapper.downloadAudio(url, options.output)
-                : await scrapper.download(url, options.output, { audioOnly: false });
+                : await scrapper.download(url, options.output, downloadOptions);
             
             if (result.success) {
                 console.log('\n✓ Download complete!');

@@ -78,6 +78,8 @@ class YtScrapper {
      * @param {string} url - YouTube video URL
      * @param {string} outputPath - Directory to save the video
      * @param {Object} options - Download options
+     * @param {string} options.quality - Video quality/resolution (e.g., '720p', '1080p', 'best', 'worst')
+     * @param {boolean} options.audioOnly - Download audio only
      * @returns {Promise<Object>} Download result
      */
     async download(url, outputPath = null, options = {}) {
@@ -93,6 +95,11 @@ class YtScrapper {
             
             if (options.audioOnly) {
                 args.push('--audio-only');
+            }
+            
+            if (options.quality) {
+                args.push('--quality');
+                args.push(options.quality);
             }
 
             const result = await this._executePython(args);

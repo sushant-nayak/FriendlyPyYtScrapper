@@ -14,16 +14,19 @@ import urllib.error
 import time
 import random
 import gzip
+import subprocess
+import tempfile
 
 
 class YouTubeDownloader:
     def __init__(self):
-        # Rotate between multiple realistic user agents
+        # Rotate between multiple realistic user agents (updated to latest versions)
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
         ]
         
         # Use Android client - typically has fewer restrictions
@@ -38,8 +41,27 @@ class YouTubeDownloader:
             }
         }
         
-        # Fallback contexts to try
+        # Fallback contexts to try (prioritize iOS and Android)
         self.fallback_contexts = [
+            {
+                "client": {
+                    "clientName": "IOS",
+                    "clientVersion": "19.09.3",
+                    "deviceModel": "iPhone14,3",
+                    "hl": "en",
+                    "gl": "US",
+                    "utcOffsetMinutes": 0
+                }
+            },
+            {
+                "client": {
+                    "clientName": "ANDROID_EMBEDDED_PLAYER",
+                    "clientVersion": "19.09.36",
+                    "androidSdkVersion": 30,
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
             {
                 "client": {
                     "clientName": "WEB",
@@ -47,39 +69,51 @@ class YouTubeDownloader:
                     "hl": "en",
                     "gl": "US"
                 }
-            },
-            {
-                "client": {
-                    "clientName": "IOS",
-                    "clientVersion": "19.09.3",
-                    "deviceModel": "iPhone14,3",
-                    "hl": "en",
-                    "gl": "US"
-                }
             }
         ]
     
-    def _get_headers(self):
+    def _get_headers(self, for_api=False):
         """Get randomized headers to avoid bot detection"""
-        return {
+        headers = {
             'User-Agent': random.choice(self.user_agents),
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'max-age=0'
         }
+        
+        if for_api:
+            headers.update({
+                'Accept': 'application/json',
+                'Origin': 'https://www.youtube.com',
+                'Referer': 'https://www.youtube.com/',
+                'X-Youtube-Client-Name': '1',
+                'X-Youtube-Client-Version': '2.20240201.00.00',
+            })
+        else:
+            headers.update({
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0',
+            })
+        
+        return headers
     
-    def _make_request(self, url, data=None, headers=None, max_retries=3):
+    def _make_request(self, url, data=None, headers=None, max_retries=3, is_api=False):
         """Make HTTP request with retry logic"""
         if headers is None:
-            headers = self._get_headers()
+            headers = self._get_headers(for_api=is_api)
         
         for attempt in range(max_retries):
             try:
+                # Add small random delay between retries to appear more human-like
+                if attempt > 0:
+                    delay = random.uniform(1.0, 3.0)
+                    sys.stderr.write(f"Waiting {delay:.1f}s before retry...\n")
+                    time.sleep(delay)
+                
                 if data:
                     data = json.dumps(data).encode('utf-8')
                     headers['Content-Type'] = 'application/json'
@@ -137,14 +171,17 @@ class YouTubeDownloader:
             # Try primary context first
             contexts_to_try = [self.innertube_context] + self.fallback_contexts
             
-            for context in contexts_to_try:
+            for idx, context in enumerate(contexts_to_try):
+                # Add delay between context attempts to avoid rate limiting
+                if idx > 0:
+                    time.sleep(random.uniform(0.5, 1.5))
                 payload = {
                     "videoId": video_id,
                     "context": context
                 }
                 
                 try:
-                    response_text = self._make_request(api_url, data=payload)
+                    response_text = self._make_request(api_url, data=payload, is_api=True)
                     player_response = json.loads(response_text)
                     
                     if 'playabilityStatus' in player_response:
@@ -213,8 +250,47 @@ class YouTubeDownloader:
         except Exception as e:
             return {'error': str(e)}
     
-    def download_video(self, url, output_path='.', quality='best', audio_only=False):
-        """Download video from YouTube"""
+    def _download_stream(self, url, filepath, description=""):
+        """Helper method to download a single stream"""
+        headers = self._get_headers()
+        req = urllib.request.Request(url, headers=headers)
+        
+        if description:
+            sys.stderr.write(f"{description}\n")
+        
+        with urllib.request.urlopen(req, timeout=60) as response:
+            total_size = int(response.headers.get('Content-Length', 0))
+            downloaded = 0
+            chunk_size = 8192
+            
+            with open(filepath, 'wb') as out_file:
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    out_file.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    if total_size > 0:
+                        progress = (downloaded / total_size) * 100
+                        mb_downloaded = downloaded / (1024 * 1024)
+                        mb_total = total_size / (1024 * 1024)
+                        sys.stderr.write(f"\r  Progress: {progress:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)")
+                        sys.stderr.flush()
+        
+        sys.stderr.write("\n")
+    
+    def download_video(self, url, output_path='.', quality='best', audio_only=False, merge=True):
+        """Download video from YouTube
+        
+        Args:
+            url: YouTube video URL
+            output_path: Directory to save video
+            quality: Resolution (e.g., '720p', '1080p', '480p', 'best', 'worst')
+            audio_only: Download audio only
+            merge: Merge separate video and audio streams (requires ffmpeg)
+        """
         try:
             info = self.get_video_info(url)
             
@@ -226,82 +302,174 @@ class YouTubeDownloader:
             if not formats:
                 return {'error': 'No formats available with direct URLs'}
             
-            # Filter formats
-            if audio_only:
-                formats = [f for f in formats if f.get('hasAudio') and not f.get('hasVideo')]
-            else:
-                # Prefer formats with both audio and video
-                formats = [f for f in formats if f.get('hasAudio') and f.get('hasVideo')]
-            
-            if not formats:
-                return {'error': 'No suitable format found. Video may require signature decryption.'}
-            
-            # Sort by quality/bitrate
-            if audio_only:
-                formats.sort(key=lambda x: x.get('bitrate', 0), reverse=True)
-            else:
-                # Sort by quality (try to get highest quality)
-                def quality_key(f):
-                    quality_str = f.get('quality', '')
-                    if isinstance(quality_str, str) and 'p' in quality_str:
-                        try:
-                            return int(quality_str.replace('p', ''))
-                        except:
-                            pass
-                    return 0
-                formats.sort(key=quality_key, reverse=True)
-            
-            selected_format = formats[0]
-            
             # Ensure output directory exists
             os.makedirs(output_path, exist_ok=True)
             
             # Generate safe filename
             safe_title = re.sub(r'[^\w\s-]', '', info['title'])
             safe_title = re.sub(r'[-\s]+', '_', safe_title)[:100]  # Limit length
-            extension = 'mp3' if audio_only else 'mp4'
-            filename = f"{safe_title}_{info['id']}.{extension}"
-            filepath = os.path.join(output_path, filename)
             
-            # Download the file
-            download_url = selected_format['url']
-            
-            # Use custom headers for download
-            headers = self._get_headers()
-            req = urllib.request.Request(download_url, headers=headers)
-            
-            sys.stderr.write(f"Downloading: {info['title']}\n")
-            sys.stderr.write(f"Quality: {selected_format.get('quality', 'unknown')}\n")
-            
-            with urllib.request.urlopen(req, timeout=60) as response:
-                total_size = int(response.headers.get('Content-Length', 0))
-                downloaded = 0
-                chunk_size = 8192
+            # Handle audio-only download
+            if audio_only:
+                audio_formats = [f for f in formats if f.get('hasAudio') and not f.get('hasVideo')]
+                if not audio_formats:
+                    return {'error': 'No audio-only formats found'}
                 
-                with open(filepath, 'wb') as out_file:
-                    while True:
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        
-                        out_file.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        if total_size > 0:
-                            progress = (downloaded / total_size) * 100
-                            mb_downloaded = downloaded / (1024 * 1024)
-                            mb_total = total_size / (1024 * 1024)
-                            sys.stderr.write(f"\rProgress: {progress:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)")
-                            sys.stderr.flush()
+                audio_formats.sort(key=lambda x: x.get('bitrate', 0), reverse=True)
+                selected_format = audio_formats[0]
+                
+                extension = 'mp3'
+                filename = f"{safe_title}_{info['id']}.{extension}"
+                filepath = os.path.join(output_path, filename)
+                
+                sys.stderr.write(f"Downloading: {info['title']}\n")
+                sys.stderr.write(f"Audio bitrate: {selected_format.get('bitrate', 'unknown')}\n\n")
+                
+                self._download_stream(selected_format['url'], filepath, "Downloading audio...")
+                
+                sys.stderr.write("✓ Download completed!\n")
+                
+                return {
+                    'success': True,
+                    'filename': filename,
+                    'filepath': filepath,
+                    'title': info['title']
+                }
             
-            sys.stderr.write("\n✓ Download completed!\n")
+            # Helper function to extract resolution number
+            def get_resolution(f):
+                quality_str = f.get('quality', '')
+                if isinstance(quality_str, str) and 'p' in quality_str:
+                    try:
+                        return int(quality_str.replace('p', ''))
+                    except:
+                        pass
+                return 0
             
-            return {
-                'success': True,
-                'filename': filename,
-                'filepath': filepath,
-                'title': info['title']
-            }
+            # Check if we should merge (high quality video + audio)
+            video_formats = [f for f in formats if f.get('hasVideo')]
+            audio_formats = [f for f in formats if f.get('hasAudio') and not f.get('hasVideo')]
+            combined_formats = [f for f in formats if f.get('hasAudio') and f.get('hasVideo')]
+            
+            # Select video format based on quality
+            if quality == 'best':
+                video_formats.sort(key=get_resolution, reverse=True)
+                selected_video = video_formats[0] if video_formats else None
+            elif quality == 'worst':
+                video_formats.sort(key=get_resolution)
+                selected_video = video_formats[0] if video_formats else None
+            elif quality.endswith('p'):
+                try:
+                    target_res = int(quality.replace('p', ''))
+                    exact_match = [f for f in video_formats if get_resolution(f) == target_res]
+                    if exact_match:
+                        selected_video = exact_match[0]
+                    else:
+                        video_formats.sort(key=lambda f: abs(get_resolution(f) - target_res))
+                        selected_video = video_formats[0] if video_formats else None
+                        if selected_video:
+                            actual_res = get_resolution(selected_video)
+                            sys.stderr.write(f"Requested {quality} not available, using closest: {actual_res}p\n")
+                except ValueError:
+                    return {'error': f'Invalid quality format: {quality}. Use format like "720p" or "best"'}
+            else:
+                return {'error': f'Invalid quality: {quality}. Use "best", "worst", or a resolution like "720p"'}
+            
+            if not selected_video:
+                return {'error': 'No suitable video format found'}
+            
+            # Check if selected video has audio
+            has_audio = selected_video.get('hasAudio', False)
+            
+            # Decide whether to merge
+            if merge and not has_audio and audio_formats:
+                # Need to download and merge separate streams
+                sys.stderr.write(f"Downloading: {info['title']}\n")
+                sys.stderr.write(f"Video quality: {selected_video.get('quality', 'unknown')}\n")
+                sys.stderr.write(f"Mode: Separate video + audio (will merge with FFmpeg)\n\n")
+                
+                # Select best audio
+                audio_formats.sort(key=lambda x: x.get('bitrate', 0), reverse=True)
+                selected_audio = audio_formats[0]
+                
+                # Create temporary files
+                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_temp:
+                    video_temp_path = video_temp.name
+                
+                with tempfile.NamedTemporaryFile(suffix='.m4a', delete=False) as audio_temp:
+                    audio_temp_path = audio_temp.name
+                
+                try:
+                    # Download video stream
+                    self._download_stream(selected_video['url'], video_temp_path, "Downloading video stream...")
+                    
+                    # Download audio stream
+                    self._download_stream(selected_audio['url'], audio_temp_path, "Downloading audio stream...")
+                    
+                    # Merge with FFmpeg
+                    sys.stderr.write("\nMerging video and audio with FFmpeg...\n")
+                    
+                    filename = f"{safe_title}_{info['id']}.mp4"
+                    filepath = os.path.join(output_path, filename)
+                    
+                    # Use FFmpeg to merge
+                    ffmpeg_cmd = [
+                        'ffmpeg', '-y',
+                        '-i', video_temp_path,
+                        '-i', audio_temp_path,
+                        '-c:v', 'copy',
+                        '-c:a', 'aac',
+                        '-strict', 'experimental',
+                        filepath
+                    ]
+                    
+                    result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        return {'error': f'FFmpeg merge failed: {result.stderr}'}
+                    
+                    sys.stderr.write("✓ Merge completed!\n")
+                    sys.stderr.write("✓ Download completed!\n")
+                    
+                    return {
+                        'success': True,
+                        'filename': filename,
+                        'filepath': filepath,
+                        'title': info['title'],
+                        'merged': True
+                    }
+                
+                finally:
+                    # Clean up temp files
+                    if os.path.exists(video_temp_path):
+                        os.unlink(video_temp_path)
+                    if os.path.exists(audio_temp_path):
+                        os.unlink(audio_temp_path)
+            
+            else:
+                # Download single stream (has audio or merge disabled)
+                filename = f"{safe_title}_{info['id']}.mp4"
+                filepath = os.path.join(output_path, filename)
+                
+                sys.stderr.write(f"Downloading: {info['title']}\n")
+                sys.stderr.write(f"Quality: {selected_video.get('quality', 'unknown')}\n")
+                
+                if not has_audio:
+                    sys.stderr.write("⚠️  Warning: Video has no audio (merge disabled or no audio stream available)\n")
+                
+                sys.stderr.write("\n")
+                
+                self._download_stream(selected_video['url'], filepath, "Downloading...")
+                
+                sys.stderr.write("✓ Download completed!\n")
+                
+                return {
+                    'success': True,
+                    'filename': filename,
+                    'filepath': filepath,
+                    'title': info['title'],
+                    'merged': False
+                }
             
         except Exception as e:
             return {'error': str(e)}
@@ -324,8 +492,16 @@ def main():
     elif command == 'download':
         output_path = sys.argv[3] if len(sys.argv) > 3 else './downloads'
         audio_only = '--audio-only' in sys.argv
+        merge = '--no-merge' not in sys.argv  # Merge by default
         
-        result = downloader.download_video(url, output_path, audio_only=audio_only)
+        # Extract quality parameter
+        quality = 'best'
+        if '--quality' in sys.argv:
+            quality_idx = sys.argv.index('--quality')
+            if quality_idx + 1 < len(sys.argv):
+                quality = sys.argv[quality_idx + 1]
+        
+        result = downloader.download_video(url, output_path, quality=quality, audio_only=audio_only, merge=merge)
         print(json.dumps(result, indent=2))
     
     else:
